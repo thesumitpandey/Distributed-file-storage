@@ -1,17 +1,37 @@
 package main
 
 import (
-	"Distributed-file-storage/p2p"
+	"bytes"
+	"fmt"
+	"io"
 	"log"
 )
 
 func main() {
-	 tr:=p2p.NewTcpTransport(":3000")
-	 
-	if err:=tr.ListenAndAccept();err!=nil{
-	  log.Fatal(err)
+	opts := StoreOpts{
+		PathTransformFunc: CASPathStorageFunc,
 	}
 
-	for{}
+	s := NewStore(opts)
 
+	key := "qwertyuiop"
+	data := []byte("hello world")
+
+	if err := s.WriteStrem(key, bytes.NewReader(data)); err != nil {
+		fmt.Println(err)
+	}
+
+	r, err := s.Read(key)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	b, _ := io.ReadAll(r)
+
+	fmt.Println(string(b))
+
+	if err:=s.Delete(key); err != nil {
+		fmt.Println(err)
+	}
+	
 }

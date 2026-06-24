@@ -32,13 +32,19 @@ type TcpTransport struct {
 
 	mu    sync.RWMutex
 	peers map[net.Addr]peer
+	onPeer func(peer)error
 }
 
-func NewTcpTransport(listenAddress string) *TcpTransport {
+func NewTcpTransport(listenAddress string) transport {
 	return &TcpTransport{
 		handshake:     NOPHandshakeFunc,
 		listenAddress: listenAddress,
 		decoder: DefaultDecoder{},
+		rpcch: make(chan Message),
+		onPeer: func (peer)error  {
+			fmt.Println("some login")
+			return nil
+		},
 	}
 }
 
@@ -77,13 +83,25 @@ type temp struct {
 }
 
 func (t *TcpTransport) handleConn(conn net.Conn) {
+var er error
+
+defer func(){
+fmt.Println("error :",er)
+conn.Close()
+}()
+
 
 	peer := NewTcpPeer(conn, true)
 
 	if err := t.handshake(peer); err != nil {
-		fmt.Printf("error during handshake %v\n", err)
-		conn.Close()
 		return
+	}
+
+	if t.onPeer != nil {
+	  if t.onPeer(peer)!=nil{
+     er=t.onPeer(peer)
+			return
+		}
 	}
 
 	msg := &Message{}
@@ -95,8 +113,6 @@ func (t *TcpTransport) handleConn(conn net.Conn) {
 
 		msg.From=conn.RemoteAddr()
 		t.rpcch <- *msg
-		fmt.Printf("received message %s\n", msg)
-
 	}
 
 }
