@@ -1,11 +1,13 @@
 package p2p
 
 
-type  peer interface{
+type  Peer interface{
 	Close() error
 }
 
-type transport interface {
+type Transport interface {
    ListenAndAccept()error
    Consume()<-chan Message
+   Close()error
+   Dial(string)error
 }

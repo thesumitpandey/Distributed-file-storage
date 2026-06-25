@@ -30,6 +30,8 @@ func CASPathStorageFunc(path string) PathKey {
 
 }
 
+var DefaulRoot string = "root"
+
 type PathKey struct {
 	PathName string
 	fileName string
@@ -39,8 +41,8 @@ func (p *PathKey) FullPath() string {
 	return fmt.Sprintf("%s/%s", p.PathName, p.fileName)
 }
 
-func (p *PathKey) FirstPath() string {	
-  firstPath:=strings.Split(p.PathName, "/")[0]
+func (p *PathKey) FirstPath() string {
+	firstPath := strings.Split(fmt.Sprintf(p.PathName), "/")[0]
 	return firstPath
 }
 
@@ -48,6 +50,7 @@ type PathTransformFunc func(string) PathKey
 
 type StoreOpts struct {
 	PathTransformFunc PathTransformFunc
+	Root              string
 }
 
 type Store struct {
@@ -58,11 +61,10 @@ func NewStore(opts StoreOpts) *Store {
 	return &Store{StoreOpts: opts}
 }
 
+func (s *Store) Delete(key string) error {
+	pathKey := s.PathTransformFunc(key)
 
-func(s * Store) Delete(key string)error{
-	pathKey:=s.PathTransformFunc(key)
-  
-	return os.RemoveAll(pathKey.FirstPath())
+	return os.RemoveAll(s.Root + "/" + pathKey.FirstPath())
 }
 
 func (s *Store) Read(key string) (io.Reader, error) {
@@ -76,24 +78,38 @@ func (s *Store) Read(key string) (io.Reader, error) {
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, f)
 
-	return buf,err
+	return buf, err
 }
 
 func (s *Store) readStream(key string) (io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
-	return os.Open(pathKey.FullPath())
+	filepathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+
+	return os.Open(filepathWithRoot)
 }
 
-func (s *Store) WriteStrem(key string, r io.Reader) error {
+func (s *Store) Write(key string, r io.Reader) error {
+	return s.writeStrem(key, r)
+}
+
+func (s *Store) writeStrem(key string, r io.Reader) error {
+
+	if len(s.Root) == 0 {
+		s.Root = DefaulRoot
+	}
 
 	pathKey := s.PathTransformFunc(key)
-	if err := os.MkdirAll(pathKey.PathName, os.ModePerm); err != nil {
+	pathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
+
+	if err := os.MkdirAll(pathWithRoot, os.ModePerm); err != nil {
 		return err
 	}
 
-	filepath := pathKey.FullPath()
+	filepathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
 
-	f, err := os.Create(filepath)
+	fmt.Println(filepathWithRoot)
+
+	f, err := os.Create(filepathWithRoot)
 	if err != nil {
 		return err
 	}
@@ -105,7 +121,11 @@ func (s *Store) WriteStrem(key string, r io.Reader) error {
 		return err
 	}
 
-	fmt.Println("wrote", n, "bytes to", filepath)
+	fmt.Println("wrote", n, "bytes to", filepathWithRoot)
 
 	return nil
+}
+
+func (s *Store) Clear() error {
+	return os.RemoveAll(s.Root)
 }

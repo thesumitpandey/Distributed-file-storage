@@ -1,7 +1,9 @@
 package p2p
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 )
@@ -11,7 +13,7 @@ type TcpPeer struct {
 	outbound bool
 }
 
-func NewTcpPeer(conn net.Conn, outbound bool) peer {
+func NewTcpPeer(conn net.Conn, outbound bool) Peer {
 	return &TcpPeer{
 		conn:     conn,
 		outbound: outbound,
@@ -19,8 +21,8 @@ func NewTcpPeer(conn net.Conn, outbound bool) peer {
 
 }
 
-func (p*TcpPeer) Close() error {
-return p.conn.Close()
+func (p *TcpPeer) Close() error {
+	return p.conn.Close()
 }
 
 type TcpTransport struct {
@@ -28,28 +30,44 @@ type TcpTransport struct {
 	listener      net.Listener
 	handshake     HandshakeFunc
 	decoder       Decoder
-	rpcch        chan Message
+	rpcch         chan Message
 
-	mu    sync.RWMutex
-	peers map[net.Addr]peer
-	onPeer func(peer)error
+	mu     sync.RWMutex
+	peers  map[net.Addr]Peer
+	onPeer func(Peer) error
 }
 
-func NewTcpTransport(listenAddress string) transport {
+func NewTcpTransport(listenAddress string) Transport {
 	return &TcpTransport{
 		handshake:     NOPHandshakeFunc,
 		listenAddress: listenAddress,
-		decoder: DefaultDecoder{},
-		rpcch: make(chan Message),
-		onPeer: func (peer)error  {
+		decoder:       DefaultDecoder{},
+		rpcch:         make(chan Message),
+		onPeer: func(Peer) error {
 			fmt.Println("some login")
 			return nil
 		},
 	}
 }
 
-func (t *TcpTransport) Consume() <-chan Message  {
-return t.rpcch
+func (t *TcpTransport) Dial(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+
+	if err != nil {
+		return err
+	}
+
+	go t.handleConn(conn, true)
+
+	return nil
+}
+
+func (t *TcpTransport) Close() error {
+	return t.listener.Close()
+}
+
+func (t *TcpTransport) Consume() <-chan Message {
+	return t.rpcch
 }
 
 func (t *TcpTransport) ListenAndAccept() error {
@@ -62,6 +80,8 @@ func (t *TcpTransport) ListenAndAccept() error {
 
 	go t.startAcceptLoop()
 
+	log.Printf("listening on %s\n", t.listenAddress)
+
 	return nil
 }
 
@@ -69,37 +89,38 @@ func (t *TcpTransport) startAcceptLoop() {
 
 	for {
 		conn, err := t.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
+
 		if err != nil {
 			fmt.Printf("error accepting connection %v\n", err)
 		}
-		go t.handleConn(conn)
+		go t.handleConn(conn,false)
 	}
 
 }
 
-
 type temp struct {
-  
 }
 
-func (t *TcpTransport) handleConn(conn net.Conn) {
-var er error
+func (t *TcpTransport) handleConn(conn net.Conn, outbound bool) {
+	var er error
 
-defer func(){
-fmt.Println("error :",er)
-conn.Close()
-}()
+	defer func() {
+		fmt.Println("error :", er)
+		conn.Close()
+	}()
 
-
-	peer := NewTcpPeer(conn, true)
+	peer := NewTcpPeer(conn, outbound)
 
 	if err := t.handshake(peer); err != nil {
 		return
 	}
 
 	if t.onPeer != nil {
-	  if t.onPeer(peer)!=nil{
-     er=t.onPeer(peer)
+		if t.onPeer(peer) != nil {
+			er = t.onPeer(peer)
 			return
 		}
 	}
@@ -111,7 +132,7 @@ conn.Close()
 			continue
 		}
 
-		msg.From=conn.RemoteAddr()
+		msg.From = conn.RemoteAddr()
 		t.rpcch <- *msg
 	}
 
