@@ -11,9 +11,10 @@ import (
 type TcpPeer struct {
 	conn     net.Conn
 	outbound bool
+	Wg     sync.WaitGroup
 }
 
-func NewTcpPeer(conn net.Conn, outbound bool) Peer {
+func NewTcpPeer(conn net.Conn, outbound bool) *TcpPeer {
 	return &TcpPeer{
 		conn:     conn,
 		outbound: outbound,
@@ -21,8 +22,24 @@ func NewTcpPeer(conn net.Conn, outbound bool) Peer {
 
 }
 
+func (p *TcpPeer) Send(msg []byte) error {
+	_, err := p.conn.Write(msg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *TcpPeer) Read(data []byte) (int, error){
+	return p.conn.Read(data)
+}
+
 func (p *TcpPeer) Close() error {
 	return p.conn.Close()
+}
+
+func (p *TcpPeer) RemoteAddr() net.Addr {
+	return p.conn.RemoteAddr()
 }
 
 type TcpTransport struct {
@@ -34,16 +51,16 @@ type TcpTransport struct {
 
 	mu     sync.RWMutex
 	peers  map[net.Addr]Peer
-	onPeer func(Peer) error
+	OnPeer func(Peer) error
 }
 
-func NewTcpTransport(listenAddress string) Transport {
+func NewTcpTransport(listenAddress string) *TcpTransport {
 	return &TcpTransport{
 		handshake:     NOPHandshakeFunc,
 		listenAddress: listenAddress,
 		decoder:       DefaultDecoder{},
 		rpcch:         make(chan Message),
-		onPeer: func(Peer) error {
+		OnPeer: func(Peer) error {
 			fmt.Println("some login")
 			return nil
 		},
@@ -96,7 +113,7 @@ func (t *TcpTransport) startAcceptLoop() {
 		if err != nil {
 			fmt.Printf("error accepting connection %v\n", err)
 		}
-		go t.handleConn(conn,false)
+		go t.handleConn(conn, false)
 	}
 
 }
@@ -118,9 +135,8 @@ func (t *TcpTransport) handleConn(conn net.Conn, outbound bool) {
 		return
 	}
 
-	if t.onPeer != nil {
-		if t.onPeer(peer) != nil {
-			er = t.onPeer(peer)
+	if t.OnPeer != nil {
+		if t.OnPeer(peer) != nil {
 			return
 		}
 	}
@@ -132,8 +148,13 @@ func (t *TcpTransport) handleConn(conn net.Conn, outbound bool) {
 			continue
 		}
 
-		msg.From = conn.RemoteAddr()
+		msg.From = conn.RemoteAddr().String()
+
+		fmt.Println("message recieved in transport",msg.Payload)
+		peer.Wg.Add(1)
 		t.rpcch <- *msg
+		peer.Wg.Wait()
+
 	}
 
 }
