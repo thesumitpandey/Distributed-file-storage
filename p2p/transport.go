@@ -3,10 +3,9 @@ package p2p
 import "net"
 
 type Peer interface {
-	RemoteAddr() net.Addr
-	Close() error
-	Send(b []byte) error
-	Read(b []byte) (int, error)
+  net.Conn
+  CloseStream()
+	Send([]byte)error
 }
 
 type Transport interface {

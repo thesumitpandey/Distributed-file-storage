@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -61,38 +61,46 @@ func NewStore(opts StoreOpts) *Store {
 	return &Store{StoreOpts: opts}
 }
 
+func (s *Store) Has(key string) bool {
+	pathKey := s.PathTransformFunc(key)
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+
+	_, err := os.Stat(fullPathWithRoot)
+	return !errors.Is(err, os.ErrNotExist)
+}
+
 func (s *Store) Delete(key string) error {
 	pathKey := s.PathTransformFunc(key)
 
 	return os.RemoveAll(s.Root + "/" + pathKey.FirstPath())
 }
 
-func (s *Store) Read(key string) (io.Reader, error) {
-	f, err := s.readStream(key)
-	if err != nil {
-		return nil, err
-	}
-
-	defer f.Close()
-
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, f)
-
-	return buf, err
+func (s *Store) Read(key string) (int64, io.Reader, error) {
+	return s.readStream(key)
 }
 
-func (s *Store) readStream(key string) (io.ReadCloser, error) {
+func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
 	filepathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
 
-	return os.Open(filepathWithRoot)
+	file, err := os.Open(filepathWithRoot)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	fi, err := file.Stat()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return fi.Size(), file, nil
 }
 
-func (s *Store) Write(key string, r io.Reader) error {
+func (s *Store) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStrem(key, r)
 }
 
-func (s *Store) writeStrem(key string, r io.Reader) error {
+func (s *Store) writeStrem(key string, r io.Reader) (int64, error) {
 
 	if len(s.Root) == 0 {
 		s.Root = DefaulRoot
@@ -102,7 +110,7 @@ func (s *Store) writeStrem(key string, r io.Reader) error {
 	pathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
 
 	if err := os.MkdirAll(pathWithRoot, os.ModePerm); err != nil {
-		return err
+		return 0, err
 	}
 
 	filepathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
@@ -111,19 +119,19 @@ func (s *Store) writeStrem(key string, r io.Reader) error {
 
 	f, err := os.Create(filepathWithRoot)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	defer f.Close()
 
 	n, err := io.Copy(f, r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	fmt.Println("wrote", n, "bytes to", filepathWithRoot)
 
-	return nil
+	return n, nil
 }
 
 func (s *Store) Clear() error {

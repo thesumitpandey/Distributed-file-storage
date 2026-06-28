@@ -9,37 +9,40 @@ import (
 )
 
 type TcpPeer struct {
-	conn     net.Conn
+	net.Conn
 	outbound bool
-	Wg     sync.WaitGroup
+	wg       sync.WaitGroup
 }
 
 func NewTcpPeer(conn net.Conn, outbound bool) *TcpPeer {
 	return &TcpPeer{
-		conn:     conn,
+		Conn:     conn,
 		outbound: outbound,
 	}
+}
 
+func (p *TcpPeer) CloseStream() {
+	p.wg.Done()
 }
 
 func (p *TcpPeer) Send(msg []byte) error {
-	_, err := p.conn.Write(msg)
+	_, err := p.Conn.Write(msg)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *TcpPeer) Read(data []byte) (int, error){
-	return p.conn.Read(data)
+func (p *TcpPeer) Read(data []byte) (int, error) {
+	return p.Conn.Read(data)
 }
 
 func (p *TcpPeer) Close() error {
-	return p.conn.Close()
+	return p.Conn.Close()
 }
 
 func (p *TcpPeer) RemoteAddr() net.Addr {
-	return p.conn.RemoteAddr()
+	return p.Conn.RemoteAddr()
 }
 
 type TcpTransport struct {
@@ -141,8 +144,10 @@ func (t *TcpTransport) handleConn(conn net.Conn, outbound bool) {
 		}
 	}
 
-	msg := &Message{}
+	
 	for {
+		msg := &Message{}
+
 		if err := t.decoder.Decode(conn, msg); err != nil {
 			fmt.Printf("error decoding message %v\n", err)
 			continue
@@ -150,10 +155,15 @@ func (t *TcpTransport) handleConn(conn net.Conn, outbound bool) {
 
 		msg.From = conn.RemoteAddr().String()
 
-		fmt.Println("message recieved in transport",msg.Payload)
-		peer.Wg.Add(1)
-		t.rpcch <- *msg
-		peer.Wg.Wait()
+		if msg.Stream {
+			peer.wg.Add(1)
+			fmt.Printf("[%s] incoming stream, waiting...\n", conn.RemoteAddr())
+			peer.wg.Wait()
+			fmt.Printf("[%s] stream closed, resuming read loop\n", conn.RemoteAddr())
+			continue
+		}
+
+   t.rpcch<-*msg
 
 	}
 

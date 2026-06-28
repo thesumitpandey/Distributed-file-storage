@@ -4,6 +4,8 @@ import (
 	"Distributed-file-storage/p2p"
 	"bytes"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 )
 
@@ -12,7 +14,7 @@ func makeServer(addr string, nodes ...string) *FileServer {
 
 	fileServerOpts := FileServerOpts{
 		Transport:         transPort,
-		StoreRoot:         "root",
+		StoreRoot:         strings.TrimPrefix(addr, ":") + "_network",
 		PathTransformFunc: CASPathStorageFunc,
 		BootStrapNodes:    nodes,
 	}
@@ -30,21 +32,28 @@ func main() {
 
 	go func() { s1.Start() }()
 
-	time.Sleep(2*time.Second)
+	time.Sleep(2 * time.Second)
 
-go	s2.Start()
+	go s2.Start()
 
 	time.Sleep(2 * time.Second)
 
-	b:=[]byte("check")
+	// b := []byte("maindata")
 
-	fmt.Println("check")
-	err:=s2.StoreMessage("checkkey",bytes.NewReader(b))
-if err!=nil{
-	fmt.Println(err)
-}
+	// for i := 0; i < 10; i++ {
+	// 	err := s2.Store(fmt.Sprintf("%d_mainkey%d", i, i), bytes.NewReader(b))
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 	}
+	// }
 
+	r, _ := s2.Get("1_mainkey1")
 
-// for{}
+	data := new(bytes.Buffer)
+	io.Copy(data, r)
+	fmt.Println(data.String())
+
+	for {
+	}
 
 }
